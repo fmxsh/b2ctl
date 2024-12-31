@@ -3,10 +3,10 @@
 This script provides a command-line interface for managing files in a Backblaze B2 bucket. It allows users to list, upload, download, and delete files, as well as interact with the B2 bucket in an interactive mode.
 
 > [!NOTE]
-> This script is made for use with Bucket keys not the master key. Create a bucket and create an application key for the bucket. Get the KeyID and the secret APP_KEY that was generated and showed once.
+> This script is made for use with Bucket keys not the master key. Create a bucket and create an application key for the bucket. Get the KeyID and the secret AppKey that was generated and showed once.
 
 > [!NOTE]
-> We do not need bucketName, as it is derived from the KeyID which is tied to the bucket.
+> We do not need bucketName or bucketID, as it is derived from the KeyID which is tied to the bucket.
 
 ## Prerequisites
 
