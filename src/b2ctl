@@ -1,0 +1,273 @@
+#!/bin/bash
+
+# Backblaze B2 account details
+# set env variables:
+KEY_ID="$B2CTL_KEY_ID"
+APP_KEY="$B2CTL_APP_KEY"
+
+# Global variables for B2 authorization
+AUTH_TOKEN=""
+API_URL=""
+BUCKET_ID=""
+BUCKET_NAME=""
+
+# Authorize Backblaze account
+authorize_b2() {
+	#echo "Authorizing with Backblaze B2..."
+	AUTH_RESPONSE=$(curl -s -u "$KEY_ID:$APP_KEY" https://api.backblazeb2.com/b2api/v3/b2_authorize_account)
+
+	# Extract necessary values using sed
+	AUTH_TOKEN=$(echo "$AUTH_RESPONSE" | sed -n 's/.*"authorizationToken"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+	API_URL=$(echo "$AUTH_RESPONSE" | sed -n 's/.*"apiUrl"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+	BUCKET_ID=$(echo "$AUTH_RESPONSE" | sed -n 's/.*"bucketId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+	BUCKET_NAME=$(echo "$AUTH_RESPONSE" | sed -n 's/.*"bucketName"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+
+	if [[ -z "$AUTH_TOKEN" || -z "$API_URL" || -z "$BUCKET_ID" || -z "$BUCKET_NAME" ]]; then
+		echo "Authorization failed. Please check your credentials."
+		exit 1
+	fi
+	#echo "Authorization successful."
+	#echo "Bucket ID: $BUCKET_ID"
+	#echo "Bucket Name: $BUCKET_NAME"
+}
+
+# Display usage information
+usage() {
+	echo "Usage: $0 --up SRC | --down FILE_NAME DST | --list"
+	exit 1
+}
+
+# List all files in the bucket
+list_files() {
+	FILES_RESPONSE=$(curl -s -X POST "$API_URL/b2api/v3/b2_list_file_names" \
+		-H "Authorization: $AUTH_TOKEN" \
+		-d "{\"bucketId\": \"$BUCKET_ID\"}")
+
+	# Debug: Show raw response
+	#echo "DEBUG: FILES_RESPONSE='$FILES_RESPONSE'"
+
+	# Extract and display file names using sed
+	echo "$FILES_RESPONSE" | sed -n 's/.*"fileName"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+}
+
+# Delete a file from the bucket
+# Delete a file by its number from the list
+delete_file_by_name() {
+	local FILE_NAME=$1
+
+	echo "Retrieving file ID for: $FILE_NAME..."
+
+	# Fetch the list of file IDs and names
+	LIST_RESPONSE=$(curl -s -X POST "$API_URL/b2api/v3/b2_list_file_names" \
+		-H "Authorization: $AUTH_TOKEN" \
+		-d "{\"bucketId\": \"$BUCKET_ID\"}")
+
+	# Debug: Show the full list response
+	echo "DEBUG: LIST_RESPONSE='$LIST_RESPONSE'"
+
+	# Initialize variables
+	local CURRENT_FILE=""
+	local CURRENT_ID=""
+	local FOUND=false
+
+	# Read the JSON line by line and extract fileName and fileId
+	while read -r LINE; do
+		# Check if this line contains a fileName
+		if echo "$LINE" | grep -q '"fileName":'; then
+			CURRENT_FILE=$(echo "$LINE" | sed -n 's/.*"fileName"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+		fi
+
+		# Check if this line contains a fileId
+		if echo "$LINE" | grep -q '"fileId":'; then
+			CURRENT_ID=$(echo "$LINE" | sed -n 's/.*"fileId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+		fi
+
+		# If the fileName matches, break the loop
+		if [[ "$CURRENT_FILE" == "$FILE_NAME" && -n "$CURRENT_ID" ]]; then
+			FOUND=true
+			break
+		fi
+	done <<<"$(echo "$LIST_RESPONSE" | tr ',' '\n')"
+
+	# Check if we found the file ID
+	if [[ "$FOUND" == true ]]; then
+		echo "File ID retrieved: $CURRENT_ID"
+		echo "Deleting file: $FILE_NAME..."
+
+		# Delete the file version using the file ID
+		DELETE_RESPONSE=$(curl -s -X POST "$API_URL/b2api/v3/b2_delete_file_version" \
+			-H "Authorization: $AUTH_TOKEN" \
+			-d "{\"fileName\": \"$FILE_NAME\", \"fileId\": \"$CURRENT_ID\"}")
+
+		# Debug: Show the full delete response
+		echo "DEBUG: DELETE_RESPONSE='$DELETE_RESPONSE'"
+
+		if echo "$DELETE_RESPONSE" | grep -q '"fileId"'; then
+			echo "File deleted successfully."
+		else
+			echo "Failed to delete file. Response: $DELETE_RESPONSE"
+		fi
+	else
+		echo "Failed to retrieve file ID for: $FILE_NAME"
+		echo "Response: $LIST_RESPONSE"
+		return 1
+	fi
+}
+
+# Upload a file to the bucket
+upload_file() {
+	local SRC=$1
+
+	if [[ ! -f "$SRC" ]]; then
+		echo "Source file does not exist: $SRC"
+		exit 1
+	fi
+
+	echo "Uploading file: $SRC"
+	UPLOAD_URL_RESPONSE=$(curl -s -X POST "$API_URL/b2api/v3/b2_get_upload_url" \
+		-H "Authorization: $AUTH_TOKEN" \
+		-d "{\"bucketId\": \"$BUCKET_ID\"}")
+
+	UPLOAD_URL=$(echo "$UPLOAD_URL_RESPONSE" | sed -n 's/.*"uploadUrl"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+	UPLOAD_AUTH_TOKEN=$(echo "$UPLOAD_URL_RESPONSE" | sed -n 's/.*"authorizationToken"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+
+	if [[ -z "$UPLOAD_URL" || -z "$UPLOAD_AUTH_TOKEN" ]]; then
+		echo "Failed to retrieve upload URL."
+		exit 1
+	fi
+
+	# Calculate SHA1 checksum of the file
+	FILE_SHA1=$(sha1sum "$SRC" | awk '{print $1}')
+
+	curl --progress-bar -s -X POST "$UPLOAD_URL" \
+		-H "Authorization: $UPLOAD_AUTH_TOKEN" \
+		-H "X-Bz-File-Name: $(basename "$SRC")" \
+		-H "X-Bz-Content-Sha1: $FILE_SHA1" \
+		-H "Content-Type: b2/x-auto" \
+		--data-binary @"$SRC"
+
+	echo "File uploaded successfully."
+}
+
+# Download a file from the bucket
+download_file() {
+	local FILE_NAME=$1
+	local DSTDIR=$2
+
+	echo "Downloading file: $FILE_NAME from bucket: $BUCKET_NAME"
+	DOWNLOAD_URL="$API_URL/file/$BUCKET_NAME/$FILE_NAME"
+
+	curl --progress-bar -s -o "$DSTDIR/$FILE_NAME" "$DOWNLOAD_URL" \
+		-H "Authorization: $AUTH_TOKEN"
+
+	if [[ $? -eq 0 ]]; then
+		echo "File downloaded to: $DSTDIR"
+	else
+		echo "File download failed."
+	fi
+}
+
+# Interactive mode
+interactive_mode() {
+	echo "Entering interactive mode. Choose an option:"
+	echo "  l - List files"
+	echo "  r - Remove a file"
+	echo "  d - Download a file"
+	echo "  q - Quit"
+
+	while true; do
+		# Wait for a single key press
+		echo -n "> "
+		read -n 1 -s INPUT
+		echo -n "$INPUT"
+		echo
+		case $INPUT in
+		l)
+
+			FILES=$(list_files)
+			IFS=$'\n' read -r -d '' -a FILE_ARRAY <<<"$FILES"
+
+			if [[ ${#FILE_ARRAY[@]} -eq 0 ]]; then
+				echo "No files found."
+			else
+				echo "Files in bucket:"
+				for i in "${!FILE_ARRAY[@]}"; do
+					echo " $i: ${FILE_ARRAY[$i]}"
+				done
+			fi
+			;;
+		d)
+			echo -n "download file by number> "
+			read FILE_NUM
+
+			FILES=$(list_files)
+			IFS=$'\n' read -r -d '' -a FILE_ARRAY <<<"$FILES"
+
+			if [[ ! $FILE_NUM =~ ^[0-9]+$ ]] || [[ $FILE_NUM -ge ${#FILE_ARRAY[@]} ]]; then
+				echo "Invalid selection."
+			else
+				FILE_NAME=${FILE_ARRAY[$FILE_NUM]}
+				download_file "$FILE_NAME" "./"
+			fi
+			;;
+		r)
+			echo -n "delete file by number> "
+			read FILE_NUM
+
+			if [[ ! $FILE_NUM =~ ^[0-9]+$ ]] || [[ $FILE_NUM -ge ${#FILE_ARRAY[@]} ]]; then
+				echo "Invalid selection."
+			else
+				FILE_NAME=${FILE_ARRAY[$FILE_NUM]}
+				delete_file_by_name "$FILE_NAME"
+			fi
+			;;
+		q)
+			echo "Exiting interactive mode."
+			break
+			;;
+		*)
+			echo "Invalid input. Press 'l' to list files, 'd' to delete a file, or 'q' to quit."
+			;;
+		esac
+	done
+}
+
+# Main script logic
+if [[ $# -lt 1 ]]; then
+	# Default to interactive mode if no arguments are provided
+	ACTION="--interactive"
+else
+	ACTION=$1
+fi
+
+# Authorize and get bucket details
+authorize_b2
+
+case $ACTION in
+
+--interactive)
+	interactive_mode
+	;;
+--list)
+	if [[ $# -ne 1 ]]; then
+		usage
+	fi
+	list_files
+	;;
+--up)
+	if [[ $# -ne 2 ]]; then
+		usage
+	fi
+	upload_file "$2"
+	;;
+--down)
+	if [[ $# -ne 3 ]]; then
+		usage
+	fi
+	# First filename, then destination dir, no trailing slash
+	download_file "$2" "$3"
+	;;
+*)
+	usage
+	;;
+esac
