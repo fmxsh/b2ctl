@@ -49,10 +49,18 @@ List all files in the bucket:
 
 ### Upload File
 
-Upload a file to the bucket:
+Upload a file to the bucket. It will be named same in bucket as it is name at source.
 
 ```bash
 ./script.sh --up <source_file_path>
+```
+
+Supports piped data.
+
+In such case <source_file_path> doesn't have to exist as a file where the script is running. The filename is used as the name for the desitnation file in the bucket. Thus it becomes <dest_file_name>.
+
+```bash
+echo "my data" | ./script.sh --up <dest_file_name>
 ```
 
 ### Download File

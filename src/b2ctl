@@ -116,37 +116,65 @@ delete_file_by_name() {
 
 # Upload a file to the bucket
 upload_file() {
-	local SRC=$1
+	local FILENAME=$1
 
-	if [[ ! -f "$SRC" ]]; then
-		echo "Source file does not exist: $SRC"
-		exit 1
-	fi
-
-	echo "Uploading file: $SRC"
-	UPLOAD_URL_RESPONSE=$(curl -s -X POST "$API_URL/b2api/v3/b2_get_upload_url" \
+	# Retrieve upload URL and auth token
+	local upload_info
+	upload_info=$(curl -s -X POST "$API_URL/b2api/v3/b2_get_upload_url" \
 		-H "Authorization: $AUTH_TOKEN" \
 		-d "{\"bucketId\": \"$BUCKET_ID\"}")
 
-	UPLOAD_URL=$(echo "$UPLOAD_URL_RESPONSE" | sed -n 's/.*"uploadUrl"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-	UPLOAD_AUTH_TOKEN=$(echo "$UPLOAD_URL_RESPONSE" | sed -n 's/.*"authorizationToken"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+	UPLOAD_URL=$(echo "$upload_info" | sed -n 's/.*"uploadUrl"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+	UPLOAD_AUTH_TOKEN=$(echo "$upload_info" | sed -n 's/.*"authorizationToken"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
 
 	if [[ -z "$UPLOAD_URL" || -z "$UPLOAD_AUTH_TOKEN" ]]; then
 		echo "Failed to retrieve upload URL."
 		exit 1
 	fi
 
-	# Calculate SHA1 checksum of the file
-	FILE_SHA1=$(sha1sum "$SRC" | awk '{print $1}')
+	# Check if data is piped into the script
+	if [ -p /dev/stdin ]; then
+		echo "Uploading piped data to: $FILENAME"
 
-	curl --progress-bar -s -X POST "$UPLOAD_URL" \
-		-H "Authorization: $UPLOAD_AUTH_TOKEN" \
-		-H "X-Bz-File-Name: $(basename "$SRC")" \
-		-H "X-Bz-Content-Sha1: $FILE_SHA1" \
-		-H "Content-Type: b2/x-auto" \
-		--data-binary @"$SRC"
+		# Read all piped data into a variable
+		local piped_data
+		piped_data=$(cat)
 
-	echo "File uploaded successfully."
+		# Calculate SHA1 checksum of the piped data
+		FILE_SHA1=$(echo -n "$piped_data" | sha1sum | awk '{print $1}')
+
+		# NOTE: We could also do this instead of pipe again with printf below
+		# Rewind stdin using process substitution
+		# exec 3<&0
+		# exec <&3
+
+		printf "%s" "$piped_data" | curl --progress-bar -X POST "$UPLOAD_URL" \
+			-H "Authorization: $UPLOAD_AUTH_TOKEN" \
+			-H "X-Bz-File-Name: $FILENAME" \
+			-H "X-Bz-Content-Sha1: $FILE_SHA1" \
+			-H "Content-Type: b2/x-auto" \
+			--data-binary @-
+
+		echo "Piped data uploaded successfully."
+	elif [[ -f "$FILENAME" ]]; then
+		echo "Uploading file: $FILENAME"
+
+		# Calculate SHA1 checksum of the file
+		FILE_SHA1=$(sha1sum "$FILENAME" | awk '{print $1}')
+
+		# Upload the file
+		curl --progress-bar -X POST "$UPLOAD_URL" \
+			-H "Authorization: $UPLOAD_AUTH_TOKEN" \
+			-H "X-Bz-File-Name: $(basename "$FILENAME")" \
+			-H "X-Bz-Content-Sha1: $FILE_SHA1" \
+			-H "Content-Type: b2/x-auto" \
+			--data-binary @"$FILENAME"
+
+		echo "File uploaded successfully."
+	else
+		echo "Error: File does not exist: $FILENAME"
+		exit 1
+	fi
 }
 
 # Download a file from the bucket
