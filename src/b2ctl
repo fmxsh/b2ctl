@@ -37,6 +37,30 @@ usage() {
 	exit 1
 }
 
+list_file_properties() {
+	FILES_RESPONSE=$(curl -s -X POST "$API_URL/b2api/v3/b2_list_file_names" \
+		-H "Authorization: $AUTH_TOKEN" \
+		-d "{\"bucketId\": \"$BUCKET_ID\"}")
+
+	# Check if the response contains files
+	if [[ "$FILES_RESPONSE" == *'"fileName"'* ]]; then
+		echo -e "  File Properties ─┐"
+		echo -e "┌──────────────────┘"
+		echo -e "│"
+
+		# Directly display the contentLength (file size in bytes)
+		echo "$FILES_RESPONSE" | jq -r '
+            .files[] | 
+            "├── File Name      : \(.fileName)\n" +
+            "│   Size (Bytes)   : \(.contentLength)\n" +
+            "│   Content Type   : \(.contentType)\n" +
+            "│   Uploaded At    : \((.uploadTimestamp / 1000) | strflocaltime("%Y-%m-%d %H:%M:%S"))\n" +
+            "│"'
+	else
+		echo "No files found or error in fetching file list."
+	fi
+}
+
 # List all files in the bucket
 list_files() {
 	FILES_RESPONSE=$(curl -s -X POST "$API_URL/b2api/v3/b2_list_file_names" \
@@ -45,7 +69,6 @@ list_files() {
 
 	# Debug: Show raw response
 	#echo "DEBUG: FILES_RESPONSE='$FILES_RESPONSE'"
-
 	# Extract and display file names using sed
 	echo "$FILES_RESPONSE" | sed -n 's/.*"fileName"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
 }
@@ -185,7 +208,7 @@ download_file() {
 	echo "Downloading file: $FILE_NAME from bucket: $BUCKET_NAME"
 	DOWNLOAD_URL="$API_URL/file/$BUCKET_NAME/$FILE_NAME"
 
-	curl --progress-bar -s -o "$DSTDIR/$FILE_NAME" "$DOWNLOAD_URL" \
+	curl --progress-bar -o "$DSTDIR/$FILE_NAME" "$DOWNLOAD_URL" \
 		-H "Authorization: $AUTH_TOKEN"
 
 	if [[ $? -eq 0 ]]; then
@@ -199,6 +222,7 @@ download_file() {
 interactive_mode() {
 	echo "Entering interactive mode. Choose an option:"
 	echo "  l - List files"
+	echo "  L - List properties of files"
 	echo "  r - Remove a file"
 	echo "  d - Download a file"
 	echo "  q - Quit"
@@ -210,6 +234,9 @@ interactive_mode() {
 		echo -n "$INPUT"
 		echo
 		case $INPUT in
+		L)
+			list_file_properties | less
+			;;
 		l)
 
 			FILES=$(list_files)
@@ -254,7 +281,7 @@ interactive_mode() {
 			break
 			;;
 		*)
-			echo "Invalid input. Press 'l' to list files, 'd' to delete a file, or 'q' to quit."
+			echo "Invalid input. Press 'l' to list files, 'r' to remove file, 'd' to delete a file, or 'q' to quit."
 			;;
 		esac
 	done
@@ -287,6 +314,13 @@ case $ACTION in
 		usage
 	fi
 	upload_file "$2"
+	;;
+--del)
+	if [[ $# -ne 2 ]]; then
+		usage
+	fi
+	# First filename, then destination dir, no trailing slash
+	delete_file_by_name "$2"
 	;;
 --down)
 	if [[ $# -ne 3 ]]; then

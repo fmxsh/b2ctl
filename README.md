@@ -24,7 +24,7 @@ This script provides a command-line interface for managing files in a Backblaze 
 
 2. Ensure the script has execution permissions:
    ```bash
-   chmod +x script.sh
+   chmod +x b2ctl
    ```
 
 ## Usage
@@ -35,8 +35,14 @@ Run the script with one of the following options:
 
 Start an interactive session:
 
+Either start `b2ctl` without any arguments, or use the `--interactive` flag:
+
 ```bash
-./script.sh --interactive
+./b2ctl
+
+# or
+
+./b2ctl --interactive
 ```
 
 ### List Files
@@ -44,7 +50,7 @@ Start an interactive session:
 List all files in the bucket:
 
 ```bash
-./script.sh --list
+./b2ctl --list
 ```
 
 ### Upload File
@@ -52,7 +58,7 @@ List all files in the bucket:
 Upload a file to the bucket. It will be named same in bucket as it is name at source.
 
 ```bash
-./script.sh --up <source_file_path>
+./b2ctl --up <source_file_path>
 ```
 
 Supports piped data.
@@ -60,7 +66,7 @@ Supports piped data.
 In such case <source_file_path> doesn't have to exist as a file where the script is running. The filename is used as the name for the desitnation file in the bucket. Thus it becomes <dest_file_name>.
 
 ```bash
-echo "my data" | ./script.sh --up <dest_file_name>
+echo "my data" | ./b2ctl --up <dest_file_name>
 ```
 
 ### Download File
@@ -68,7 +74,7 @@ echo "my data" | ./script.sh --up <dest_file_name>
 Download a file from the bucket:
 
 ```bash
-./script.sh --down <file_name> <destination_directory>
+./b2ctl --down <file_name> <destination_directory>
 ```
 
 ### Delete File
