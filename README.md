@@ -41,6 +41,14 @@ For select mode, you can invoke the script with `--fd 10` and it will write the 
 done)
 ```
 
+#### Setting the destination directory for downloaded file
+
+The file that is selected will be downloaded into the directory specified by `--dest`.
+
+```bash
+./b2ctl --dest <destination_directory> --fd 10
+```
+
 ### Interactive Mode
 
 Start an interactive session:
