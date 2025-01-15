@@ -17,6 +17,7 @@ OUTPUT_FD=1
 # Process all arguments to find --fd <FD>
 CLEAN_ARGS=()
 
+SELECT_DESTINATION="/tmp"
 # We can specify --fd for target file descriptor for output name of selected file in select mode
 
 while [[ $# -gt 0 ]]; do
@@ -31,6 +32,19 @@ while [[ $# -gt 0 ]]; do
 			exit 1
 		fi
 		;;
+	--dest)
+		shift # Move to the next argument (should be the destination path)
+		SELECT_DESTINATION=$1
+
+		# Check if the destination is a valid directory
+		if [[ -d "$SELECT_DESTINATION" ]]; then
+			shift # Move past the valid directory argument
+		else
+			echo "Error: '$SELECT_DESTINATION' is not a valid directory." >&2
+			exit 1
+		fi
+		;;
+
 	*) # Keep all other arguments
 		CLEAN_ARGS+=("$1")
 		shift
@@ -332,6 +346,9 @@ interactive_mode() {
 				else
 					FILE_NAME=${FILE_ARRAY[$FILE_NUM]}
 					# Default is 1, stdout, but user is supposed to set one, if 1 a lot of other data will be printed and our filename at bottom
+					echo "Downloading file: $FILE_NAME from bucket: $BUCKET_NAME, storing in $SELECT_DESTINATION"
+					download_file "$FILE_NAME" "$SELECT_DESTINATION"
+
 					echo "$FILE_NAME" >&"$OUTPUT_FD"
 					exit 0
 				fi
