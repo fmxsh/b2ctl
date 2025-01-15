@@ -31,6 +31,16 @@ This script provides a command-line interface for managing files in a Backblaze 
 
 Run the script with one of the following options:
 
+### Select mode and target file descriptor
+
+For select mode, you can invoke the script with `--fd 10` and it will write the selected filename to file descriptor 10 and quit (assuming a caller script is ready to recieve it like:
+
+```bash
+./b2ctl --fd 10 10> >(while read -r line; do
+	echo "Captured output: $line"
+done)
+```
+
 ### Interactive Mode
 
 Start an interactive session:

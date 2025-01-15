@@ -11,6 +11,38 @@ API_URL=""
 BUCKET_ID=""
 BUCKET_NAME=""
 
+# Default output file descriptor
+OUTPUT_FD=1
+
+# Process all arguments to find --fd <FD>
+CLEAN_ARGS=()
+
+# We can specify --fd for target file descriptor for output name of selected file in select mode
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--fd)
+		shift # Move to the next argument (should be the FD number)
+		if [[ "$1" =~ ^[0-9]+$ ]]; then
+			OUTPUT_FD=$1
+			shift # Skip past the FD value
+		else
+			echo "Error: --fd requires a numeric file descriptor." >&2
+			exit 1
+		fi
+		;;
+	*) # Keep all other arguments
+		CLEAN_ARGS+=("$1")
+		shift
+		;;
+	esac
+done
+
+# Restore the cleaned-up arguments
+set -- "${CLEAN_ARGS[@]}"
+
+###
+
 # Authorize Backblaze account
 authorize_b2() {
 	#echo "Authorizing with Backblaze B2..."
@@ -280,6 +312,32 @@ interactive_mode() {
 			echo "Exiting interactive mode."
 			break
 			;;
+		s)
+			FILES=$(list_files)
+			IFS=$'\n' read -r -d '' -a FILE_ARRAY <<<"$FILES"
+
+			if [[ ${#FILE_ARRAY[@]} -eq 0 ]]; then
+				echo "No files found."
+			else
+				echo "Select a file:"
+				for i in "${!FILE_ARRAY[@]}"; do
+					echo " $i: ${FILE_ARRAY[$i]}"
+				done
+
+				echo -n "Select file by number > "
+				read FILE_NUM
+
+				if [[ ! $FILE_NUM =~ ^[0-9]+$ ]] || [[ $FILE_NUM -ge ${#FILE_ARRAY[@]} ]]; then
+					echo "Invalid selection."
+				else
+					FILE_NAME=${FILE_ARRAY[$FILE_NUM]}
+					# Default is 1, stdout, but user is supposed to set one, if 1 a lot of other data will be printed and our filename at bottom
+					echo "$FILE_NAME" >&"$OUTPUT_FD"
+					exit 0
+				fi
+			fi
+			;;
+
 		*)
 			echo "Invalid input. Press 'l' to list files, 'r' to remove file, 'd' to delete a file, or 'q' to quit."
 			;;
