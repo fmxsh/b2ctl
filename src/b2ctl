@@ -254,7 +254,7 @@ download_file() {
 	echo "Downloading file: $FILE_NAME from bucket: $BUCKET_NAME"
 	DOWNLOAD_URL="$API_URL/file/$BUCKET_NAME/$FILE_NAME"
 
-	curl --progress-bar -o "$DSTDIR/$FILE_NAME" "$DOWNLOAD_URL" \
+	curl -fSL -o "$DSTDIR/$FILE_NAME" "$DOWNLOAD_URL" \
 		-H "Authorization: $AUTH_TOKEN"
 
 	if [[ $? -eq 0 ]]; then
