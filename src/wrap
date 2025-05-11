@@ -1,0 +1,11 @@
+#!/bin/bash
+
+export B2CTL_KEY_ID="the id here"
+export B2CTL_APP_KEY="the app key here"
+
+#./b2ctl --del local.archivex.250104-224654.tar.gz
+# Run b2ctl and redirect FD 10 to a pipe
+#
+./b2ctl --dest ./ --fd 10 10> >(while read -r line; do
+	echo "Captured output: $line"
+done)
